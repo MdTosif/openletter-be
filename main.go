@@ -13,7 +13,7 @@ func main() {
 	// Load the .env file
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Fatal("Error loading .env file:", err)
+		log.Println("Error loading .env file:", err)
 	}
 	router := gin.Default()
 
