@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,7 +17,6 @@ import (
 
 var jwksURL = os.Getenv("JWKS_URL")
 
-
 type MyCustomClaims struct {
 	Sub []string `json:"sub"`
 	jwt.StandardClaims
@@ -24,7 +24,11 @@ type MyCustomClaims struct {
 
 func GetLetters(c *gin.Context) {
 	token := c.GetHeader("Authorization")
-	username := GetUserName(token)
+	username, err := GetUserName(token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	print(username, token)
 	leters := model.GetUserMessage(username)
 
@@ -36,7 +40,11 @@ func GetLetters(c *gin.Context) {
 func AddLetter(c *gin.Context) {
 	var letter model.Letters
 	token := c.GetHeader("Authorization")
-	username := GetUserName(token)
+	username, err := GetUserName(token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	print(username, token)
 	if err := c.BindJSON(&letter); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -52,7 +60,7 @@ func AddLetter(c *gin.Context) {
 	c.JSON(http.StatusCreated, letter)
 }
 
-func GetUserName(userToken string) string {
+func GetUserName(userToken string) (string, error) {
 
 	// Create a context that, when cancelled, ends the JWKS background refresh goroutine.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -74,7 +82,8 @@ func GetUserName(userToken string) string {
 	// Create the JWKS from the resource at the given URL.
 	jwks, err := keyfunc.Get(jwksURL, options)
 	if err != nil {
-		log.Printf("Failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
+		cancel()
+		return "", errors.New("failed to create jwks from resource")
 	}
 
 	// Get a JWT to parse.
@@ -84,12 +93,14 @@ func GetUserName(userToken string) string {
 	claims := jwt.MapClaims{}
 	token, err := jwt.ParseWithClaims(jwtB64, &claims, jwks.Keyfunc)
 	if err != nil {
-		log.Printf("Failed to parse the JWT.\nError: %s", err.Error())
+		cancel()
+		return "", errors.New("failed to parse the JWT")
 	}
 
 	// Check if the token is valid.
 	if !token.Valid {
-		log.Print("The token is not valid.")
+		cancel()
+		return "", errors.New("the token is not valid")
 	}
 	log.Println("The token is valid.")
 
@@ -104,8 +115,8 @@ func GetUserName(userToken string) string {
 		fmt.Printf("Key: %v, value: %v\n", key, val)
 		if key == "sub" {
 			s := val.(string)
-			return s
+			return s, nil
 		}
 	}
-	return ""
+	return "", errors.New("invalid token")
 }
